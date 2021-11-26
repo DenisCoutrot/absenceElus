@@ -19,7 +19,7 @@ f.scraplinks <- function(url){
 
 webLiens <- f.scraplinks(url)
 webLiens <- webLiens %>% filter(str_detect(link_,"Séance du Conseil de Paris ") &
-                         str_detect(link_, "(2021)") &
+                         str_detect(link_, "(2020|2021)") &
                          !str_detect(link_, "(Annexe|Addenda)"))
 
 url_ <- c("https://cdn.paris.fr/paris/2021/10/25/dce5274767d0fda43f35e33c8fd344db.pdf",
@@ -27,17 +27,27 @@ url_ <- c("https://cdn.paris.fr/paris/2021/10/25/dce5274767d0fda43f35e33c8fd344d
           "https://cdn.paris.fr/paris/2021/06/14/b4f24b6fa0997ca8137241dc48aa3b9f.pdf",  #juin
           "https://cdn.paris.fr/paris/2021/04/23/1455aa6725032472a5e910bbe1e56e69.pdf",
           "https://cdn.paris.fr/paris/2021/03/22/dd0810f9e657d907b2cff77d2d6536c4.pdf",
-          "https://cdn.paris.fr/paris/2021/02/12/932e03a17b81fd0caebf0a77eb61b3c8.pdf")
+          "https://cdn.paris.fr/paris/2021/02/12/932e03a17b81fd0caebf0a77eb61b3c8.pdf",
+          "https://cdn.paris.fr/paris/2021/01/04/671ad39f64909599b76b0580e86e9dbe.pdf",
+          "https://cdn.paris.fr/paris/2020/11/30/aeedd144f678b5ff2d8bbf5b861f5d57.pdf",
+          "https://cdn.paris.fr/paris/2020/10/28/730a45308a1bcdfd12346bea7dfe83b8.pdf",
+          "https://cdn.paris.fr/paris/2020/08/11/9f909bac569f5cae6490d89ff1ab71e8.pdf",
+          "https://cdn.paris.fr/paris/2020/07/08/a5050c7a9eb25cc46f4a1341eaa12ab7.pdf",
+          "https://cdn.paris.fr/paris/2020/05/26/52373d795f728681a1d408d498d50422.pdf")
 
 
-status <- c("Present(e)", "Absent(e)", "Excuse(e) au sens du reglement", "Excuse(e)")
+status <- c("Present(e)",  "Excuse(e) au sens du reglement", "Excuse(e)", "Absent(e)")
+code_status <- c("M", #starts with M for Mme or M.
+                 "Excusé[[:lower:]]{0,2} au sens du règlement : ",
+                 "Excusé[[:lower:]]{0,2} : ",
+                 "Absent[[:lower:]]{0,2} : ")
 
 
 
 # extract and read pdf -----------------------------------------------------
 #df <- map(webLiens$url_, ~pdf_text(.))
 df <- url_ %>% map(.f = ~pdf_text(.))
-#df[[5]][[32]]
+
 
 df.results <- tibble()
 
@@ -46,67 +56,83 @@ for (k in 1:length(df)){
     if (is.null(length(df[[k]]))==TRUE) next
   
     #if (sum(str_detect(df[[k]], "DECEMBRE 2020")) > 0)  next
-    if (sum(str_detect(df[[k]], "(Absent|Excusé|Présents :)")) == 0) next
+    if (sum(str_detect(df[[k]], "Listes des membres présents")) == 0) next
     #if (sum(str_detect(df[[k]], "mercredi 18 novembre 2020")) > 0) next
   
-   df.tmp <- df[[k]] %>% keep(str_detect(., "(Absent|Excusé|Présents :)")) %>%
-                        discard(str_detect(.,"(Votant|votant)"))
+   df.tmp <- df[[k]] %>% discard(str_detect(.,"(Votant|votant|\\.\\.\\.\\.)")) %>%
+     keep(str_detect(., "(Absent|Excusé|présents)")) 
+   
+   # require collapse, detect date and separate based on date location totherwise generates na
+   df.tmp <- df.tmp %>% str_c(., collapse=" ") %>%
+          str_replace_all(., pattern = "\\\n", replacement = " ") %>%
+          str_replace_all(., "[:blank:]{2,}", " ") %>%
+          str_replace_all(., "MM.", "M.")
+   
+   vec.date <- df.tmp %>% 
+          str_extract_all(., "(Lundi |Mardi |Mercredi |Jeudi |Vendredi )([:blank:]|[:graph:]){5,20}( Matin| Après-midi)")
+   
+   tmp <- df.tmp %>% str_sub(., start=str_locate(., "(Lundi |Mardi |Mercredi |Jeudi |Vendredi )")[,1] , end=-1) %>%
+          str_replace_all(., "[0-9]{1,3}", "") %>% 
+          str_split(., "(Lundi |Mardi |Mercredi |Jeudi |Vendredi )([:blank:]|[:graph:]){5,20}( Matin| Après-midi)",
+                  simplify = TRUE)
+  
+  if (str_detect(df.tmp, "3 juillet 2020")==TRUE){ 
+      vec.date <- str_extract_all(df.tmp, "Vendredi 3 juillet 2020")
+      tmp <- str_sub(df.tmp, start=str_locate(df.tmp, "Vendredi ")[,1] , end=-1) %>%
+        str_replace_all(., "[0-9]{1,3}", "") %>% 
+        str_split(., "Vendredi  juillet ", simplify = TRUE)
+  }
+   
+  tmp <- tmp[-1]
+ 
+    
+# extract names with status   
+for (i in 1:4){
+   start = str_locate(tmp, code_status[i])
+   l.point = str_locate(tmp, "(?<=[:upper:]{2})\\.")
+   vec <- str_sub(tmp, start =start[,2], end = l.point[,1]-1) %>% 
+          str_split(., ",") %>% map(~str_trim(.))
+   tmp[!is.na(vec)] <- str_sub(tmp[!is.na(vec)], start=l.point[!is.na(vec),2]+1, end=-1) %>% str_trim()
+   assign(paste0("vec.", status[i]), vec)
+}
+
+# Note: special case for 3rd of July, mayor election
 
    
-# extraire la date du conseil
-    vec.date = str_extract(df.tmp, "(Lundi |Mardi |Mercredi |Jeudi |Vendredi )([:blank:]|[:graph:])+( Matin| Après-midi)")
-    #vec.tmp = map_if(vec.date, 
-    #                  str_locate(pattern = "[0-9]{4}") %>% as_tibble() %>% pull(),
-    #                  str_replace(pattern = " - ", replacement = " 2021 - "))
-                      
-    
-    
-# extraire présents, excusés et absents
-    s = str_locate(df.tmp, "(M. |Mme )")[,1] #première personne présente
-    e = str_length(df.tmp)
-    excr = str_locate(df.tmp, "(Excusés au sens du règlement :\n|Excusé au sens du règlement :\n|Excusées au sens du règlement :\n|Excusée au sens du règlement :\n)")
-    exc = str_locate(df.tmp, "(Excusés :\n |Excusé :\n|Excusées :\n|Excusée :\n)")
-    abs =  str_locate(df.tmp, "(Absents :\n |Absent :\n|Absente :\n|Absentes :\n)")
-
-    vec.abs = str_sub(df.tmp, start = abs[,2]+2, end = -10) %>%
-              str_trim(.) %>% str_replace_all(., "\n", " ") %>% 
-              str_split(., ", ")
-
-    vec.exc = str_sub(df.tmp, start=exc[,2]+1, end=pmin(abs[,1], e, na.rm=TRUE)-5) %>%
-              str_trim(.) %>% str_replace_all(., "\n", " ")%>% 
-              str_split(., ", ")
-
-    vec.excr= str_sub(df.tmp, start=excr[,2]+1, end=pmin(exc[,1],abs[,1],e,na.rm=TRUE)-5) %>%
-              str_trim(.) %>% str_replace_all(., "\n", " ") %>% 
-              str_split(., ", ")
-
-    vec.present  = str_sub(df.tmp, start=s, end=pmin(excr[,1], exc[,1],abs[,1],e, na.rm=TRUE)-2) %>%
-              str_trim(.) %>% str_replace_all(., "\\n", " ") %>% 
-              str_split(., ", ")
-
-
-    x <- tibble(vec.present, vec.abs, vec.excr, vec.exc)
-
-    for (i in 1:length(status)){
-      for (j in 1:length(vec.date)){
-          df.results <- tibble(x[[i]][[j]], vec.date[j], status[i]) %>%
-                        bind_rows(df.results)
-      }
-    }
+# expand names, date and status into database
+   
+   x <- tibble(Nom=list(`vec.Present(e)`, `vec.Excuse(e) au sens du reglement`,
+                        `vec.Excuse(e)`, `vec.Absent(e)`),
+               Status=status, Date=vec.date) %>% 
+     unnest(cols = c(Date, Nom)) %>%
+     unnest(cols=c(Nom))
+   
+    df.results <- df.results %>% bind_rows(x)
+    print(dim(x))
     print(dim(df.results))
+    
+    rm(x, df.tmp, l.point,vec,
+       `vec.Absent(e)`, vec.date, `vec.Excuse(e)`, `vec.Excuse(e) au sens du reglement`, 
+       `vec.Present(e)`)
 }
 
 
 # 2. Finaliser et convertir les champs noms en Civilité, Prénom, Nom ____________________________
 
 # fine tuning the output, trim, remove dots...
-names(df.results) <- c("Nom", "Date", "Status")
 df.results <- df.results %>% 
   filter(!is.na(Nom)) %>%
   mutate(Nom = str_trim(Nom, side = "both"),
          Nom = ifelse(str_detect(Nom, "[:punct:]$")==TRUE,
                       str_sub(Nom, start=1, end=str_length(Nom)-1),
                       Nom))
+
+df.results <- df.results %>% 
+            mutate(Date = str_replace(Date, "(?<=(1er|2|3|4) juin )", "2021 "),
+                   Date = str_replace(Date, "(?<=(23|24) juillet )", "2020 "),
+                   Date = str_replace(Date, "(?<=(17|18) novembre )", "2020 "),
+                   Date = str_replace(Date, "(?<=(7|8) octobre )", "2020 "))
+df.results %>% distinct(Date) %>% view()
 
 # nécessite de dupliquer le champs, supprimer les accents, identifier les spérations dans deux vecteus et appliquer au champs initial
 
@@ -126,37 +152,49 @@ df.results <- df.results %>%
          Nom = str_sub(Nom, start=sep1, end=-1) %>% str_trim(side="both")) 
 
 
-
-
-
-df.results <- df.results %>% group_by(Civilite, Prenom, Nom) %>% # require a unique ID on names to work !!!
-          mutate(ID = cur_group_id()) %>%
-          pivot_wider(names_from = Date, values_from = Status)
+#df.results <- df.results %>% group_by(Civilite, Prenom, Nom) %>% # require a unique ID on names to work !!!
+#          mutate(ID = cur_group_id()) %>%
+#          pivot_wider(names_from = Date, values_from = Status)
 glimpse(df.results)
 
 df.results %>% writexl::write_xlsx("Absence des elus au conseil de Paris.xlsx")
-rm(abs, exc, excr, vec.abs, vec.exc, vec.excr, vec.present, e,i,j,k,s, sep1, u, vec.date, vec.tmp)
+rm(abs, exc, excr, tmp, start,df.tmp, i,j,k, sep1)
+
+
+## nice plot
+# require parse date to order them and plot by presence
+width = 10
+height = (9/16) * width
+
+df.tmp <- df.results %>% 
+  mutate(Date = str_replace(Date, "Vendredi 3 juillet 2020", "Vendredi 3 juillet 2020 - Jour")) %>%
+  separate(Date, c("Date", "Periode"), sep=" - ") %>%
+  mutate(Date = dmy(Date))
+
+df.tmp <- df.tmp %>% 
+  mutate(datePeriod = case_when(
+    Periode == "Matin" ~ paste0(Date, " ", "AM"),
+    Periode == "Après-midi" ~ paste0(Date, " ", "PM"),
+    TRUE ~ as.character(Date)
+    ))
+
+df.tmp %>% group_by(datePeriod, Status) %>% 
+  summarize(value = n()) %>%
+  ggplot(aes(x= datePeriod, y= value, fill=Status))+
+    geom_col() + 
+  scale_fill_brewer()+
+  labs(title = "Présence et Absence des élus au Conseil de Paris", y="Nombre d\'élus")+
+  theme(axis.text.x = element_text(size=6,angle=90),
+        legend.title = element_text(size=8),
+        legend.text = element_text(size=8),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())+
+  theme_minimal()
+  
+  ggsave("Absence des élus par session du Conseil de Paris.jpg" , width = width, height=height)
+
+  
+
 
 
 # Bas de page ------------------------------------------------  
-
-
-# k=3 cannot parse date : quickfix : vec.date <- dmy(paste0(str_sub(df.tmp, s[,1], e[,2]-2)," - ", "2021"))
-
-
-# 1. récupérer les dates des Conseils sous forme de liste__________________________
-jours <- str_extract_all(webLiens$link_, "( [1-3][0-9] | [1-3][0-9],| [1-9] | [1-9],)") %>%
-        map(~ str_replace_all(.x,"\\,","")) %>%  map(~ str_trim(.x))
-annee <- str_extract(webLiens$link_, "([1-2][0-9]{3})")
-mois <- str_extract(webLiens$link_, "( [0-9]{1,2} [:alpha:]{4,} [1-2][0-9]{3})") %>%
-        dmy() %>% month(., label = TRUE)
-
-conseilDates <- pmap(list(jours, mois, annee), ~ paste(..1, ..2, ..3))
-rm(jours, annee, mois)
-
-                 
-      
-
-
-
-
