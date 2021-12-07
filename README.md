@@ -9,7 +9,9 @@ Identifie les pages des membres présents / excusés et absents
 
 Extrait chacune de ces catégories
 
-Formatte le tout dans des nested tibble puis crée une BDD qui est ensuite exportée sur Excel.
+Formatte le tout dans des nested tibble puis crée une BDD qui est ensuite exportée en csv.
 
 On obtient une base de données des présences / absences depuis le début de la mandature Hidalgo,
-ainsi qu'un graphique
+ainsi que des graphiques
+
+
