@@ -14,4 +14,14 @@ Formatte le tout dans des nested tibble puis crée une BDD qui est ensuite expor
 On obtient une base de données des présences / absences depuis le début de la mandature Hidalgo,
 ainsi que des graphiques
 
+<p align="center">
+  <img src="blob/main/Absence des élus par session du Conseil de Paris.jpg" width=676 height=450>
+</p> 
+
+<p align="center">
+  <img src="Top des absences des élus au Conseil de Paris.jpg" width=676 height=450>
+</p> 
+
+
+
 
